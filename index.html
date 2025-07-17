@@ -13,6 +13,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- PDF.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <!-- JSZip CDN for creating zip files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
     <script>
         // PDF.js workerのパスを設定
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
@@ -118,6 +120,7 @@
             const [error, setError] = useState(''); // Error message
             const [isDragOver, setIsDragOver] = useState(false); // State for drag-and-drop visual feedback
             const [showAdvancedOptions, setShowAdvancedOptions] = useState(false); // New state to toggle advanced options visibility
+            const [isZipping, setIsZipping] = useState(false); // New state for ZIP generation loading
 
             const fileInputRef = useRef(null); // Ref for the hidden file input element
             const convertedImagesRef = useRef(null); // Ref for the converted images section
@@ -260,6 +263,7 @@
                 setConvertedImages([]);
                 setError('');
                 setIsLoading(false);
+                setIsZipping(false);
             };
 
             // Callback to update height when width changes, maintaining aspect ratio
@@ -591,11 +595,63 @@
                 document.body.removeChild(link);
             };
 
-            // Function to download all converted images
-            const downloadAllImages = () => {
-                convertedImages.forEach(image => {
-                    downloadImage(image);
-                });
+            // Function to download all converted images as a ZIP
+            const downloadAllImages = async () => {
+                if (convertedImages.length === 0) {
+                    setError('ダウンロードする変換済み画像がありません。');
+                    return;
+                }
+
+                setIsZipping(true);
+                setError('');
+
+                const zip = new JSZip();
+                
+                // Get current date and time for a unique filename
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                const dateTimeStamp = `${year}${month}${day}_${hours}${minutes}${seconds}`;
+
+                // Create a descriptive folder name inside the ZIP
+                const folderName = `ImageForma_Converted_Images_${dateTimeStamp}`;
+                const imgFolder = zip.folder(folderName);
+
+                for (const image of convertedImages) {
+                    try {
+                        // Extract Base64 data from Data URL
+                        const base64Data = image.url.split(',')[1];
+                        // Add file to ZIP
+                        imgFolder.file(image.name, base64Data, { base64: true });
+                    } catch (err) {
+                        console.error(`ZIPへのファイル追加エラー ${image.name}:`, err);
+                        setError(`ZIPファイルへの追加中にエラーが発生しました: ${image.name}`);
+                        setIsZipping(false);
+                        return;
+                    }
+                }
+
+                try {
+                    // Generate the ZIP file and trigger download
+                    const content = await zip.generateAsync({ type: "blob" });
+                    const zipFileName = `${folderName}.zip`; // Use the same descriptive name for the ZIP file
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(content);
+                    link.download = zipFileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href); // Release object URL
+                } catch (err) {
+                    console.error('ZIPファイル生成エラー:', err);
+                    setError(`ZIPファイルの生成中にエラーが発生しました: ${err.message}`);
+                } finally {
+                    setIsZipping(false);
+                }
             };
 
             return (
@@ -972,11 +1028,21 @@
                                 <div className="text-center mt-8">
                                     <button
                                         onClick={downloadAllImages}
-                                        className="px-10 py-4 bg-gradient-to-r from-indigo-600 to-blue-700 text-white font-bold rounded-full shadow-xl
-                                                   hover:from-indigo-700 hover:to-blue-800 focus:outline-none focus:ring-4 focus:ring-indigo-300 focus:ring-offset-2
-                                                   transition-all transform hover:scale-105 active:scale-95 text-xl"
+                                        disabled={isZipping}
+                                        className={`px-10 py-4 rounded-full text-white font-bold rounded-full shadow-xl
+                                                   ${isZipping ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 focus:outline-none focus:ring-4 focus:ring-indigo-300 focus:ring-offset-2 transition-all transform hover:scale-105 active:scale-95'} text-xl`}
                                     >
-                                        すべてダウンロード
+                                        {isZipping ? (
+                                            <div className="flex items-center">
+                                                <svg className="animate-spin -ml-1 mr-3 h-7 w-7 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                ZIPファイル生成中...
+                                            </div>
+                                        ) : (
+                                            'すべてZIPでダウンロード'
+                                        )}
                                     </button>
                                 </div>
                             </div>
