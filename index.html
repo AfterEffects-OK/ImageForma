@@ -145,6 +145,10 @@
                             canvas.width = scaledViewport.width;
                             canvas.height = scaledViewport.height;
 
+                            // PDFサムネイルの背景を白で塗りつぶす
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
                             await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
 
                             newFilesWithThumbnails.push({
@@ -245,6 +249,8 @@
             const drawWatermark = (ctx, canvasWidth, canvasHeight, scale = 1) => {
                 if (!watermarkText) return; // Don't draw if no text
 
+                ctx.save(); // 現在のキャンバスの状態を保存
+
                 const scaledFontSize = watermarkFontSize * scale; // Scale font size based on preview scale
                 ctx.font = `${scaledFontSize}px ${watermarkFontFamily}`;
                 ctx.fillStyle = watermarkFontColor;
@@ -288,7 +294,8 @@
                         y = paddingY;
                 }
                 ctx.fillText(watermarkText, x, y);
-                ctx.globalAlpha = 1.0; // Reset alpha
+
+                ctx.restore(); // 保存したキャンバスの状態を復元
             };
 
             // Core function to convert images
@@ -308,7 +315,7 @@
                     const file = selectedFileItem.file;
 
                     try {
-                        let imagesToProcess = []; // 変換処理を行う画像（またはPDFページ）の配列
+                        let itemsToProcess = []; // 変換処理を行うアイテム（画像またはPDFページ）の配列
 
                         if (selectedFileItem.isPdf) {
                             // PDFファイルの場合
@@ -326,8 +333,7 @@
                                 const page = await pdf.getPage(i);
                                 const viewport = page.getViewport({ scale: 1 });
 
-                                // PDFページをImageオブジェクトとして扱うための情報
-                                imagesToProcess.push({
+                                itemsToProcess.push({
                                     type: 'pdfPage',
                                     page: page,
                                     originalWidth: viewport.width,
@@ -352,7 +358,7 @@
                                 img.src = fileData;
                             });
 
-                            imagesToProcess.push({
+                            itemsToProcess.push({
                                 type: 'image',
                                 img: img,
                                 originalWidth: img.width,
@@ -361,8 +367,8 @@
                             });
                         }
 
-                        // 各画像（またはPDFページ）を変換
-                        for (const item of imagesToProcess) {
+                        // 各アイテム（画像またはPDFページ）を変換
+                        for (const item of itemsToProcess) {
                             const canvas = document.createElement('canvas');
                             const ctx = canvas.getContext('2d');
 
@@ -387,6 +393,10 @@
 
                             canvas.width = currentWidth;
                             canvas.height = currentHeight;
+
+                            // 明示的にキャンバスの背景を白で塗りつぶす
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                             if (item.type === 'image') {
                                 ctx.drawImage(item.img, 0, 0, currentWidth, currentHeight);
@@ -483,6 +493,11 @@
                         
                         canvas.width = previewWidth;
                         canvas.height = previewHeight;
+
+                        // プレビューキャンバスの背景を白で塗りつぶす
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
                         ctx.drawImage(img, 0, 0, previewWidth, previewHeight);
                         // ウォーターマークの描画に元の画像のスケールファクターを渡す
                         drawWatermark(ctx, previewWidth, previewHeight, scaleFactor);
