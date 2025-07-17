@@ -46,6 +46,43 @@
         body {
             font-family: 'Inter', sans-serif;
         }
+
+        /* Define the wave jump animation for individual characters */
+        @keyframes waveJumpChar {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            20%, 60% { /* Peak of jump */
+                transform: translateY(-10px); /* Adjust jump height */
+            }
+        }
+
+        /* Define the jump animation for the emoji */
+        @keyframes emojiJump {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-8px); /* Adjust height of jump */
+            }
+        }
+
+        /* Apply the animation on hover to the emoji */
+        .emoji-jump:hover {
+            animation: emojiJump 0.5s ease-in-out;
+        }
+
+        /* Apply the wave animation to characters within the container on hover */
+        .wave-char {
+            display: inline-block; /* Essential for transform to work on span */
+            animation-timing-function: ease-in-out;
+            animation-fill-mode: both; /* Keep the final state of the animation */
+        }
+
+        .wave-container:hover .wave-char {
+            animation: waveJumpChar 0.5s ease-in-out; /* 'infinite' を削除して1回のみ実行 */
+            animation-delay: calc(var(--i) * 0.05s); /* Adjust delay per character */
+        }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-blue-100 to-purple-200 flex items-center justify-center p-4">
@@ -562,7 +599,14 @@
                 <div className="min-h-screen bg-gradient-to-br from-blue-100 to-purple-200 flex items-center justify-center p-4 font-sans">
                     <div className="bg-white shadow-2xl rounded-3xl p-8 w-full max-w-4xl transform transition-all duration-300 hover:scale-[1.005]">
                         <h1 className="text-4xl font-extrabold text-center text-gray-800 mb-2 tracking-tight drop-shadow-md">
-                            ImageForma 🖼️
+                            <span className="inline-block wave-container">
+                                {'ImageForma'.split('').map((char, index) => (
+                                    <span key={index} className="wave-char" style={{'--i': index}}>
+                                        {char}
+                                    </span>
+                                ))}
+                            </span>{' '} {/* Add a space here to separate text and emoji */}
+                            <span className="inline-block emoji-jump">🖼️</span>
                         </h1>
                         <p className="text-center text-gray-600 text-sm mb-10">
                             画像を簡単に変換！ウォーターマーク追加など高度な設定も可能
