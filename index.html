@@ -52,8 +52,9 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useRef, useEffect, useCallback } = React;
-        const { createRoot } = ReactDOM;
+        // ReactのフックとReactDOMのcreateRootをwindowオブジェクトから直接取得
+        const { useState, useRef, useEffect, useCallback } = window.React;
+        const { createRoot } = window.ReactDOM;
 
         // Main App component
         const App = () => {
@@ -420,8 +421,7 @@
                                     break;
                                 case 'png':
                                     mimeType = 'image/png';
-                                    quality = undefined;
-                                    break;
+                                    break; // PNG doesn't use quality parameter
                                 case 'webp':
                                     mimeType = 'image/webp';
                                     break;
@@ -584,8 +584,11 @@
                                 ref={fileInputRef}
                                 className="hidden"
                             />
-                            <p className="text-gray-700 text-lg mb-6">
+                            <p className="text-gray-700 text-lg mb-6 flex items-center justify-center">
                                 ここに画像をドラッグ＆ドロップするか、
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-8 h-8 ml-2 text-gray-500">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3.75 3.75M12 9.75L8.25 13.5M7.21 18C4.94 18 3 16.06 3 13.79C3 11.52 4.94 9.58 7.21 9.58C7.62 6.78 10.04 4.5 12.98 4.5C16.03 4.5 18.5 7.02 18.5 10.07C20.77 10.07 22.71 12.01 22.71 14.28C22.71 16.55 20.77 18.49 18.5 18.49H7.21Z"/>
+                                </svg>
                             </p>
                             <button
                                 onClick={triggerFileInput}
