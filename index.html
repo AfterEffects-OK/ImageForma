@@ -11,6 +11,12 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel Standalone for in-browser JSX transpilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- PDF.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <script>
+        // PDF.js workerのパスを設定
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
+    </script>
     <style>
         /* Custom styles for range input thumbs */
         input[type="range"]::-webkit-slider-thumb {
@@ -83,7 +89,6 @@
 
                 const newFilesWithThumbnails = [];
                 for (const file of files) {
-                    // Check if the file is an image
                     if (file.type.startsWith('image/')) {
                         try {
                             const reader = new FileReader();
@@ -105,27 +110,71 @@
                                 thumbnailUrl: fileData,
                                 originalWidth: imgLoad.width,
                                 originalHeight: imgLoad.height,
+                                isPdf: false, // 画像ファイルであることを示すフラグ
                             });
                         } catch (err) {
                             console.error("サムネイル生成エラー:", err);
-                            // If thumbnail generation fails, still add the file, but without a thumbnail
                             newFilesWithThumbnails.push({
                                 file: file,
-                                thumbnailUrl: null, // No thumbnail available
+                                thumbnailUrl: null,
                                 originalWidth: null,
                                 originalHeight: null,
+                                isPdf: false,
                             });
                             setError(`一部のファイルのサムネイル生成に失敗しました: ${file.name}`);
                         }
+                    } else if (file.type === 'application/pdf') {
+                        try {
+                            const reader = new FileReader();
+                            const arrayBuffer = await new Promise((resolve, reject) => {
+                                reader.onload = (event) => resolve(event.target.result);
+                                reader.onerror = (event) => reject(new Error("PDFファイルの読み込みに失敗しました。"));
+                                reader.readAsArrayBuffer(file);
+                            });
+
+                            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                            const page = await pdf.getPage(1); // 最初のページをサムネイルとして使用
+
+                            const viewport = page.getViewport({ scale: 1 });
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            // サムネイル用にサイズを調整
+                            const thumbnailScale = Math.min(200 / viewport.width, 200 / viewport.height);
+                            const scaledViewport = page.getViewport({ scale: thumbnailScale });
+
+                            canvas.width = scaledViewport.width;
+                            canvas.height = scaledViewport.height;
+
+                            await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+
+                            newFilesWithThumbnails.push({
+                                file: file,
+                                thumbnailUrl: canvas.toDataURL('image/png'), // PDFサムネイルはPNGで
+                                originalWidth: viewport.width, // PDFの元のページサイズ
+                                originalHeight: viewport.height,
+                                isPdf: true, // PDFファイルであることを示すフラグ
+                            });
+                        } catch (err) {
+                            console.error("PDFサムネイル生成エラー:", err);
+                            newFilesWithThumbnails.push({
+                                file: file,
+                                thumbnailUrl: null,
+                                originalWidth: null,
+                                originalHeight: null,
+                                isPdf: true,
+                            });
+                            setError(`PDFサムネイルの生成に失敗しました: ${file.name}`);
+                        }
                     } else {
-                        // If not an image, add the file without a thumbnail
+                        // サポートされていないファイルタイプ
                         newFilesWithThumbnails.push({
                             file: file,
                             thumbnailUrl: null,
                             originalWidth: null,
                             originalHeight: null,
+                            isPdf: false, // PDFでも画像でもない
                         });
-                        setError(`画像ファイルではないため、${file.name} のサムネイルは表示されません。`);
+                        setError(`サポートされていないファイルタイプのため、${file.name} のプレビューは表示されません。`);
                     }
                 }
                 setSelectedFiles(prevFiles => [...prevFiles, ...newFilesWithThumbnails]);
@@ -209,30 +258,34 @@
 
                 let x, y;
 
+                // 余白を考慮した位置計算
+                const paddingX = 10 * scale;
+                const paddingY = 10 * scale;
+
                 switch (watermarkPosition) {
                     case 'topLeft':
-                        x = 10 * scale; // Scale position
-                        y = 10 * scale; // Scale position
+                        x = paddingX;
+                        y = paddingY;
                         break;
                     case 'topRight':
-                        x = canvasWidth - textWidth - (10 * scale);
-                        y = 10 * scale;
+                        x = canvasWidth - textWidth - paddingX;
+                        y = paddingY;
                         break;
                     case 'bottomLeft':
-                        x = 10 * scale;
-                        y = canvasHeight - textHeight - (10 * scale);
+                        x = paddingX;
+                        y = canvasHeight - textHeight - paddingY;
                         break;
                     case 'bottomRight':
-                        x = canvasWidth - textWidth - (10 * scale);
-                        y = canvasHeight - textHeight - (10 * scale);
+                        x = canvasWidth - textWidth - paddingX;
+                        y = canvasHeight - textHeight - paddingY;
                         break;
                     case 'center':
                         x = (canvasWidth - textWidth) / 2;
                         y = (canvasHeight - textHeight) / 2;
                         break;
                     default:
-                        x = 10 * scale;
-                        y = 10 * scale;
+                        x = paddingX;
+                        y = paddingY;
                 }
                 ctx.fillText(watermarkText, x, y);
                 ctx.globalAlpha = 1.0; // Reset alpha
@@ -251,96 +304,137 @@
 
                 const newConvertedImages = [];
 
-                for (const selectedFileItem of selectedFiles) { // Iterate over the new structure
-                    const file = selectedFileItem.file; // Get the actual File object
+                for (const selectedFileItem of selectedFiles) {
+                    const file = selectedFileItem.file;
+
                     try {
-                        // Read the file as a Data URL
-                        const reader = new FileReader();
-                        reader.readAsDataURL(file);
+                        let imagesToProcess = []; // 変換処理を行う画像（またはPDFページ）の配列
 
-                        await new Promise((resolve, reject) => {
-                            reader.onload = async (event) => {
-                                const img = new Image();
-                                img.onload = async () => {
-                                    // Create a temporary canvas for image manipulation
-                                    const canvas = document.createElement('canvas');
-                                    const ctx = canvas.getContext('2d');
+                        if (selectedFileItem.isPdf) {
+                            // PDFファイルの場合
+                            const reader = new FileReader();
+                            const arrayBuffer = await new Promise((resolve, reject) => {
+                                reader.onload = (event) => resolve(event.target.result);
+                                reader.onerror = (event) => reject(new Error(`PDFファイルの読み込みに失敗しました: ${file.name}`));
+                                reader.readAsArrayBuffer(file);
+                            });
 
-                                    let currentWidth = img.width;
-                                    let currentHeight = img.height;
+                            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                            const numPages = pdf.numPages;
 
-                                    // Apply resizing if dimensions are provided and advanced options are shown
-                                    if (showAdvancedOptions && (resizeWidth || resizeHeight)) {
-                                        let targetWidth = resizeWidth ? parseInt(resizeWidth, 10) : img.width;
-                                        let targetHeight = resizeHeight ? parseInt(resizeHeight, 10) : img.height;
+                            for (let i = 1; i <= numPages; i++) {
+                                const page = await pdf.getPage(i);
+                                const viewport = page.getViewport({ scale: 1 });
 
-                                        if (maintainAspectRatio) {
-                                            if (resizeWidth && !resizeHeight) {
-                                                targetHeight = (targetWidth / img.width) * img.height;
-                                            } else if (resizeHeight && !resizeWidth) {
-                                                targetWidth = (targetHeight / img.height) * img.width;
-                                            }
-                                        }
-                                        currentWidth = targetWidth;
-                                        currentHeight = targetHeight;
+                                // PDFページをImageオブジェクトとして扱うための情報
+                                imagesToProcess.push({
+                                    type: 'pdfPage',
+                                    page: page,
+                                    originalWidth: viewport.width,
+                                    originalHeight: viewport.height,
+                                    pageNumber: i,
+                                    fileName: file.name,
+                                });
+                            }
+                        } else {
+                            // 画像ファイルの場合
+                            const reader = new FileReader();
+                            const fileData = await new Promise((resolve, reject) => {
+                                reader.onload = (event) => resolve(event.target.result);
+                                reader.onerror = (event) => reject(new Error(`画像の読み込みに失敗しました: ${file.name}`));
+                                reader.readAsDataURL(file);
+                            });
+
+                            const img = new Image();
+                            await new Promise((resolve, reject) => {
+                                img.onload = resolve;
+                                img.onerror = reject;
+                                img.src = fileData;
+                            });
+
+                            imagesToProcess.push({
+                                type: 'image',
+                                img: img,
+                                originalWidth: img.width,
+                                originalHeight: img.height,
+                                fileName: file.name,
+                            });
+                        }
+
+                        // 各画像（またはPDFページ）を変換
+                        for (const item of imagesToProcess) {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+
+                            let currentWidth = item.originalWidth;
+                            let currentHeight = item.originalHeight;
+
+                            // リサイズ設定の適用
+                            if (showAdvancedOptions && (resizeWidth || resizeHeight)) {
+                                let targetWidth = resizeWidth ? parseInt(resizeWidth, 10) : item.originalWidth;
+                                let targetHeight = resizeHeight ? parseInt(resizeHeight, 10) : item.originalHeight;
+
+                                if (maintainAspectRatio) {
+                                    if (resizeWidth && !resizeHeight) {
+                                        targetHeight = (targetWidth / item.originalWidth) * item.originalHeight;
+                                    } else if (resizeHeight && !resizeWidth) {
+                                        targetWidth = (targetHeight / item.originalHeight) * item.originalWidth;
                                     }
+                                }
+                                currentWidth = targetWidth;
+                                currentHeight = targetHeight;
+                            }
 
-                                    canvas.width = currentWidth;
-                                    canvas.height = currentHeight;
+                            canvas.width = currentWidth;
+                            canvas.height = currentHeight;
 
-                                    // Draw image onto canvas
-                                    ctx.drawImage(img, 0, 0, currentWidth, currentHeight);
+                            if (item.type === 'image') {
+                                ctx.drawImage(item.img, 0, 0, currentWidth, currentHeight);
+                            } else if (item.type === 'pdfPage') {
+                                const viewport = item.page.getViewport({ scale: currentWidth / item.originalWidth });
+                                await item.page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                            }
 
-                                    // Apply watermark if text is provided and advanced options are shown
-                                    if (showAdvancedOptions && watermarkText) {
-                                        // For actual conversion, scale is 1 (no scaling needed as it's original size or resized size)
-                                        drawWatermark(ctx, currentWidth, currentHeight, 1);
-                                    }
+                            // ウォーターマークの適用
+                            if (showAdvancedOptions && watermarkText) {
+                                drawWatermark(ctx, currentWidth, currentHeight, 1);
+                            }
 
-                                    // Determine output MIME type and quality based on selected format
-                                    let mimeType;
-                                    let quality = showAdvancedOptions ? compressionQuality : 0.8; // Default quality if advanced options are hidden
+                            // 出力形式と品質の決定
+                            let mimeType;
+                            let quality = showAdvancedOptions ? compressionQuality : 0.8;
 
-                                    switch (outputFormat) {
-                                        case 'jpeg':
-                                            mimeType = 'image/jpeg';
-                                            break;
-                                        case 'png':
-                                            mimeType = 'image/png';
-                                            quality = undefined; // PNG doesn't use quality parameter
-                                            break;
-                                        case 'webp':
-                                            mimeType = 'image/webp';
-                                            break;
-                                        default:
-                                            mimeType = 'image/jpeg'; // Fallback
-                                            break;
-                                    }
+                            switch (outputFormat) {
+                                case 'jpeg':
+                                    mimeType = 'image/jpeg';
+                                    break;
+                                case 'png':
+                                    mimeType = 'image/png';
+                                    quality = undefined;
+                                    break;
+                                case 'webp':
+                                    mimeType = 'image/webp';
+                                    break;
+                                default:
+                                    mimeType = 'image/jpeg';
+                                    break;
+                            }
 
-                                    const convertedDataUrl = canvas.toDataURL(mimeType, quality);
+                            const convertedDataUrl = canvas.toDataURL(mimeType, quality);
 
-                                    // Construct the new file name
-                                    const originalFileName = file.name.split('.').slice(0, -1).join('.');
-                                    // Apply prefix/suffix only if advanced options are shown
-                                    const newFileName = showAdvancedOptions
-                                        ? `${fileNamePrefix}${originalFileName}${fileNameSuffix}.${outputFormat}`
-                                        : `${originalFileName}.${outputFormat}`;
+                            // 新しいファイル名の構築
+                            const originalFileNameWithoutExt = item.fileName.split('.').slice(0, -1).join('.');
+                            const pageSuffix = item.type === 'pdfPage' ? `_page${item.pageNumber}` : '';
+                            const newFileName = showAdvancedOptions
+                                ? `${fileNamePrefix}${originalFileNameWithoutExt}${pageSuffix}${fileNameSuffix}.${outputFormat}`
+                                : `${originalFileNameWithoutExt}${pageSuffix}.${outputFormat}`;
 
-                                    newConvertedImages.push({
-                                        name: newFileName,
-                                        url: convertedDataUrl,
-                                    });
-                                    resolve();
-                                };
-                                img.onerror = () => {
-                                    reject(new Error(`画像の読み込みに失敗しました: ${file.name}`));
-                                };
-                                img.src = event.target.result;
-                            };
-                            reader.onerror = () => {
-                                reject(new Error(`ファイルの読み込みに失敗しました: ${file.name}`));
-                            };
-                        });
+                            newConvertedImages.push({
+                                name: newFileName,
+                                url: convertedDataUrl,
+                            });
+                        }
+
                     } catch (err) {
                         console.error('変換エラー:', err);
                         setError(`ファイルの変換中にエラーが発生しました ${file.name}: ${err.message}`);
@@ -368,8 +462,8 @@
                 if (selectedFiles.length > 0 && showAdvancedOptions && selectedFiles[0].thumbnailUrl) {
                     const img = new Image();
                     img.onload = () => {
-                        const originalImgWidth = img.width;
-                        const originalImgHeight = img.height;
+                        const originalImgWidth = selectedFiles[0].originalWidth; // 元の画像/PDFページの幅
+                        const originalImgHeight = selectedFiles[0].originalHeight; // 元の画像/PDFページの高さ
 
                         const maxWidth = 300;
                         const maxHeight = 200;
@@ -390,7 +484,8 @@
                         canvas.width = previewWidth;
                         canvas.height = previewHeight;
                         ctx.drawImage(img, 0, 0, previewWidth, previewHeight);
-                        drawWatermark(ctx, previewWidth, previewHeight, scaleFactor); // Pass scaleFactor to drawWatermark
+                        // ウォーターマークの描画に元の画像のスケールファクターを渡す
+                        drawWatermark(ctx, previewWidth, previewHeight, scaleFactor);
                     };
                     img.onerror = () => {
                         console.error("プレビュー画像の読み込みに失敗しました。");
@@ -469,13 +564,13 @@
                             <input
                                 type="file"
                                 multiple
-                                accept="image/*"
+                                accept="image/*, application/pdf"
                                 onChange={handleFileChange}
                                 ref={fileInputRef}
                                 className="hidden"
                             />
                             <p className="text-gray-700 text-lg mb-6">
-                                ここに画像をドラッグ＆ドロップするか、
+                                ここに画像またはPDFをドラッグ＆ドロップするか、
                             </p>
                             <button
                                 onClick={triggerFileInput}
