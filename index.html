@@ -49,11 +49,14 @@
 
         /* Define the wave jump animation for individual characters */
         @keyframes waveJumpChar {
-            0%, 100% {
+            0% {
                 transform: translateY(0);
             }
-            20%, 60% { /* Peak of jump */
+            20% { /* Peak of jump */
                 transform: translateY(-10px); /* Adjust jump height */
+            }
+            100% {
+                transform: translateY(0); /* Return to original position */
             }
         }
 
